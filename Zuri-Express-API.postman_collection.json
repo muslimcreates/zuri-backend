@@ -1,0 +1,316 @@
+{
+  "info": {
+    "name": "Zuri Express API",
+    "description": "Local dev collection for the Zuri Express backend. Import this into Postman, make sure `npm run dev` is running (see README), and work through the folders roughly in order: Auth (customer) -> Products -> Orders (customer) -> Auth (switch to admin login) -> Admin. Postman keeps cookies automatically per domain, so logging in as admin will replace your customer session — that's expected, just run the customer steps first.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000" },
+    { "key": "productId", "value": "" },
+    { "key": "productSlug", "value": "" },
+    { "key": "categoryId", "value": "" },
+    { "key": "orderId", "value": "" },
+    { "key": "orderNumber", "value": "" },
+    { "key": "newProductId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": { "method": "GET", "url": "{{baseUrl}}/health" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth (customer)",
+      "item": [
+        {
+          "name": "Sign up",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/signup",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Customer\",\n  \"email\": \"{{$randomEmail}}\",\n  \"password\": \"TestPass123!\"\n}"
+            },
+            "description": "Uses a random email each run so you can re-run this freely without a 'already exists' conflict. This also starts your session (Postman stores the cookie automatically)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Log in (customer you just created won't work here — use signup above, or replace with your own test account)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"TestPass123!\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Who am I",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/me" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Log out",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/auth/logout" }
+        }
+      ]
+    },
+    {
+      "name": "Categories & Products",
+      "item": [
+        {
+          "name": "List categories",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/categories" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (Array.isArray(body) && body.length > 0) {",
+                  "  pm.collectionVariables.set('categoryId', body[0].id);",
+                  "}",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List products",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/products",
+            "description": "Add ?category=<slug> to filter, e.g. {{baseUrl}}/api/products?category=spices"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (Array.isArray(body) && body.length > 0) {",
+                  "  pm.collectionVariables.set('productId', body[0].id);",
+                  "  pm.collectionVariables.set('productSlug', body[0].slug);",
+                  "}",
+                  "pm.test('status 200 and captured a productId', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.collectionVariables.get('productId')).to.not.equal('');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get one product",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/products/{{productSlug}}" },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Orders (customer)",
+      "item": [
+        {
+          "name": "Place order",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/orders",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [{ \"productId\": \"{{productId}}\", \"quantity\": 1 }],\n  \"address\": {\n    \"fullName\": \"Test Customer\",\n    \"phone\": \"+905551112233\",\n    \"city\": \"Istanbul\",\n    \"addressLine\": \"Test Street 1\",\n    \"postalCode\": \"34000\"\n  },\n  \"paymentMethod\": \"BANK_TRANSFER\"\n}"
+            },
+            "description": "Requires being logged in first — run 'Sign up' (or 'Log in') and 'List products' above so {{productId}} is filled in."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body && body.id) {",
+                  "  pm.collectionVariables.set('orderId', body.id);",
+                  "  pm.collectionVariables.set('orderNumber', body.orderNumber);",
+                  "}",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "My order history",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/orders" }
+        },
+        {
+          "name": "Get one of my orders",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/orders/{{orderNumber}}" }
+        }
+      ]
+    },
+    {
+      "name": "Auth (switch to admin)",
+      "item": [
+        {
+          "name": "Log in as admin",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@zuriexpress.com\",\n  \"password\": \"ChangeMe123!\"\n}"
+            },
+            "description": "From the seed script. Change this password before any real deployment. Running this replaces your customer session with an admin one."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin - Dashboard",
+      "item": [
+        {
+          "name": "Dashboard stats",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/admin/dashboard",
+            "description": "Requires 'Log in as admin' above."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin - Products",
+      "item": [
+        {
+          "name": "List all products (incl. hidden)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/admin/products" }
+        },
+        {
+          "name": "Create product",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/admin/products",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Test Product\",\n  \"description\": \"Created from the Postman collection.\",\n  \"imageUrl\": \"https://picsum.photos/seed/postman/600/600\",\n  \"priceTRY\": 49.9,\n  \"categoryId\": \"{{categoryId}}\",\n  \"fulfillmentType\": \"STOCKED\",\n  \"stock\": 10,\n  \"active\": true\n}"
+            },
+            "description": "Requires {{categoryId}} — run 'List categories' first."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body && body.id) pm.collectionVariables.set('newProductId', body.id);",
+                  "pm.test('status 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update product",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/admin/products/{{newProductId}}",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Test Product (updated)\",\n  \"description\": \"Updated from the Postman collection.\",\n  \"imageUrl\": \"https://picsum.photos/seed/postman/600/600\",\n  \"priceTRY\": 59.9,\n  \"categoryId\": \"{{categoryId}}\",\n  \"fulfillmentType\": \"STOCKED\",\n  \"stock\": 8,\n  \"active\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Hide (soft-delete) product",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/admin/products/{{newProductId}}" }
+        }
+      ]
+    },
+    {
+      "name": "Admin - Orders",
+      "item": [
+        {
+          "name": "List all orders",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/admin/orders" }
+        },
+        {
+          "name": "Get one order",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/admin/orders/{{orderId}}" }
+        },
+        {
+          "name": "Update order status",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/admin/orders/{{orderId}}",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"PAYMENT_RECEIVED\",\n  \"paymentNote\": \"Received via havale, ref 12345\"\n}"
+            },
+            "description": "Status must be one of: PENDING_PAYMENT, PAYMENT_RECEIVED, PROCESSING, SHIPPED, DELIVERED, CANCELLED."
+          }
+        }
+      ]
+    }
+  ]
+}
