@@ -36,11 +36,31 @@ When the company is registered, implement the real integration in
 `src/lib/payments.ts` (see the `PaymentProvider` interface) — nothing in
 the order model or routes needs to change.
 
-## 1. Install PostgreSQL locally
+## 1. Set up a Postgres database
 
-You need Postgres running on your own machine for local development
-(separate from wherever it ends up hosted in production — see the
-deployment section below).
+**Recommended: [Supabase](https://supabase.com)** — a hosted Postgres, free
+for a project this size, with no local install needed. This is what the
+project currently uses.
+
+1. Sign up at supabase.com and create a new project (name it e.g.
+   `zuri-express`). Set a database password when prompted — **write it
+   down**, you'll need it in a moment. Pick a region close to your users
+   (e.g. an EU region, for Türkiye).
+2. Wait a minute or two for the project to finish provisioning.
+3. Click the **Connect** button on the project dashboard, and copy the
+   **Session pooler** connection string (not Transaction pooler — session
+   mode behaves like a normal persistent connection, which is what this
+   Express server wants; transaction mode is for serverless functions and
+   can break Prisma migrations).
+4. Paste it into `.env` as `DATABASE_URL`, replacing `[YOUR-PASSWORD]` in
+   the string with the password from step 1.
+
+That's it — skip to step 2 below.
+
+<details>
+<summary>Alternative: install Postgres locally instead</summary>
+
+Only do this if you specifically want a fully offline/local setup.
 
 **macOS** (using [Homebrew](https://brew.sh)):
 ```bash
@@ -70,7 +90,10 @@ psql -U postgres -c "CREATE DATABASE zuri_express;"
 
 (If `psql -U postgres` prompts for a password you don't know yet, on
 macOS/Linux try running those two commands as the `postgres` system user
-instead: `sudo -u postgres psql -c "..."`.)
+instead: `sudo -u postgres psql -c "..."`.) Then use the local connection
+string shown (commented out) in `.env.example`.
+
+</details>
 
 ## 2. Run the API
 
@@ -198,14 +221,19 @@ src/
 
 ## Deploying (when you're ready)
 
-**Recommended: [Railway](https://railway.com).** It hosts the Node app and
-a Postgres database in one project, bills by actual usage (a low-traffic
-store runs close to the $5/month Hobby plan minimum), and needs no
-Docker/config knowledge to get started — connect this GitHub repo, add a
-Postgres service from Railway's dashboard, set the same environment
-variables as your `.env` (Railway generates `DATABASE_URL` for you when you
-add its Postgres service), and it builds and runs `npm run build && npm
-start` automatically.
+**Recommended: [Railway](https://railway.com)** for hosting the Node app
+itself — bills by actual usage (a low-traffic store runs close to the
+$5/month Hobby plan minimum), and needs no Docker/config knowledge to get
+started: connect this GitHub repo, set the same environment variables as
+your `.env`, and it builds and runs `npm run build && npm start`
+automatically.
+
+Since the database is already on Supabase, you don't need Railway's own
+Postgres too — just point Railway's `DATABASE_URL` at the same (or a
+separate production) Supabase project. Two reasonable options: reuse your
+dev Supabase project for a first soft-launch, or create a second Supabase
+project for production so test orders never mix with real ones — create it
+the same way as in step 1 above and use its connection string instead.
 
 Before deploying for real:
 1. Change the seeded admin password.
