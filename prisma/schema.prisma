@@ -1,0 +1,132 @@
+// Zuri Express — database schema
+// Single admin-managed store (not a multi-vendor marketplace).
+// Fulfillment is hybrid: some products are stocked locally in Turkey (STOCKED),
+// others are imported per order from Kenya (ON_REQUEST) with an estimated lead time.
+// No live payment gateway yet (no registered Turkish company) — orders are placed
+// with a manual payment method (bank transfer / cash on delivery) and the admin
+// marks payment received by hand. See src/lib/payments.ts for how to wire in
+// iyzico/PayTR later without changing this schema.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum FulfillmentType {
+  STOCKED // held locally in Turkey, backed by `stock`
+  ON_REQUEST // imported per order from Kenya, backed by `leadTimeDays`
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CASH_ON_DELIVERY
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT // order placed, awaiting manual payment confirmation
+  PAYMENT_RECEIVED // admin confirmed payment
+  PROCESSING // being packed / sourced
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(CUSTOMER)
+  createdAt    DateTime @default(now())
+
+  addresses Address[]
+  orders    Order[]
+}
+
+model Address {
+  id          String  @id @default(cuid())
+  userId      String
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName    String
+  phone       String
+  city        String
+  addressLine String
+  postalCode  String
+
+  orders Order[]
+
+  @@index([userId])
+}
+
+model Category {
+  id       String    @id @default(cuid())
+  name     String
+  slug     String    @unique
+  products Product[]
+}
+
+model Product {
+  id              String          @id @default(cuid())
+  name            String
+  slug            String          @unique
+  description     String
+  imageUrl        String
+  priceKurus      Int // price in Turkish kuruş (1 TRY = 100 kurus) to avoid float rounding
+  fulfillmentType FulfillmentType
+  stock           Int? // set for STOCKED products; null for ON_REQUEST
+  leadTimeDays    Int? // set for ON_REQUEST products; null for STOCKED
+  active          Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  orderItems OrderItem[]
+
+  @@index([categoryId])
+}
+
+model Order {
+  id            String        @id @default(cuid())
+  orderNumber   String        @unique
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  addressId     String
+  address       Address       @relation(fields: [addressId], references: [id])
+  status        OrderStatus   @default(PENDING_PAYMENT)
+  paymentMethod PaymentMethod
+  paymentNote   String? // admin notes, e.g. bank transfer reference
+  subtotalKurus Int
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  items OrderItem[]
+
+  @@index([userId])
+}
+
+model OrderItem {
+  id              String          @id @default(cuid())
+  orderId         String
+  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product         @relation(fields: [productId], references: [id])
+  // Snapshots at time of order, so later product edits never change past orders
+  productName     String
+  unitPriceKurus  Int
+  quantity        Int
+  fulfillmentType FulfillmentType
+  lineTotalKurus  Int
+
+  @@index([orderId])
+}
