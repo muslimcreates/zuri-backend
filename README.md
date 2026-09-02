@@ -15,6 +15,9 @@ orders.
 - **PostgreSQL + Prisma** for the database and migrations
 - **JWT session cookie** (`jsonwebtoken` + an httpOnly cookie) for auth —
   no external auth library, kept small and auditable
+- **Google Sign-In** as an additional login method alongside email/password
+  (see below) — the frontend gets a token straight from Google, the backend
+  verifies it and issues the same session cookie
 - **Zod** for request validation
 - **CORS configured for a separate frontend** (`credentials: true`, exact
   origin) — this API is meant to be called from a React app on a different
@@ -95,13 +98,48 @@ string shown (commented out) in `.env.example`.
 
 </details>
 
-## 2. Run the API
+## 2. Set up Google Sign-In
+
+Email/password still works on its own — this step is only needed if you
+want the "Sign in with Google" button on the frontend to work. It's free
+and doesn't require a registered company (unlike the payment gateways).
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and
+   create a new project (top-left project dropdown → **New Project**). Name
+   it e.g. `zuri-express`.
+2. In the left sidebar, go to **APIs & Services → OAuth consent screen**.
+   Choose **External** user type, fill in the required fields (app name
+   "Zuri Express", your email for support/developer contact) and save —
+   you can leave it in "Testing" mode for now, which is fine for
+   development.
+3. Go to **APIs & Services → Credentials**, click **+ Create Credentials →
+   OAuth client ID**.
+4. Application type: **Web application**. Name it anything.
+5. Under **Authorized JavaScript origins**, add both:
+   - `http://localhost:5173` (your future React dev server)
+   - `http://localhost:4000` (this API, only needed if you ever call Google
+     directly from a backend test page — safe to add either way)
+6. Leave **Authorized redirect URIs** empty — this flow doesn't use
+   redirects, the frontend gets a token directly via Google's script.
+7. Click **Create**. Copy the **Client ID** shown (looks like
+   `123456789-abc...apps.googleusercontent.com`). You do **not** need the
+   client secret for this flow.
+8. Paste it into `.env` as `GOOGLE_CLIENT_ID`.
+
+When you build the React app, it'll use [Google Identity
+Services](https://developers.google.com/identity/gsi/web/guides/overview)
+(a small script tag, no extra backend work) to render the button and get a
+token, then send that token to `POST /api/auth/google` below.
+
+## 3. Run the API
 
 ```bash
 npm install
 cp .env.example .env
-# Edit .env: set SESSION_SECRET (openssl rand -base64 32) and confirm
-# DATABASE_URL matches the password you set above.
+# Edit .env: set SESSION_SECRET (openssl rand -base64 32), GOOGLE_CLIENT_ID
+# (from step 2, or leave the placeholder if skipping Google Sign-In for
+# now — email/password still works either way), and confirm DATABASE_URL
+# matches the password you set above.
 
 npx prisma migrate dev    # creates all tables from prisma/schema.prisma
 npx prisma db seed        # sample Kenyan product catalog + admin user
@@ -116,7 +154,7 @@ Check it's alive: `curl http://localhost:4000/health` → `{"ok":true}`.
 "forgot password" flow yet; update it directly via
 `npx prisma studio` (a GUI for the database) or a short script.
 
-## 3. Try it out
+## 4. Try it out
 
 There's no UI yet, so use `curl`, [Postman](https://www.postman.com/), or
 similar. A couple of examples (note `-c`/`-b cookies.txt` to keep the
@@ -157,6 +195,7 @@ user (any role); **admin** requires `role: ADMIN`.
 |---|---|---|---|
 | POST | `/auth/signup` | — | Create a customer account, starts a session |
 | POST | `/auth/login` | — | Log in, starts a session |
+| POST | `/auth/google` | — | Sign in with a Google ID token (`{ credential }`), starts a session — creates the account on first use, or links Google onto a matching existing email |
 | POST | `/auth/logout` | — | Clears the session |
 | GET | `/auth/me` | auth | Current user |
 | GET | `/categories` | — | List categories |
@@ -218,6 +257,11 @@ src/
 - Deleting a product from the admin API actually sets `active: false`
   (soft delete) — hard-deleting would break the foreign key from any past
   order that references it.
+- `User.passwordHash` is nullable — an account created purely via Google
+  Sign-In has no password. `User.googleId` links an account to a Google
+  account once they've signed in with it at least once (either a brand new
+  account, or an existing email/password one that happened to share the
+  same email).
 
 ## Deploying (when you're ready)
 
@@ -243,10 +287,14 @@ Before deploying for real:
 
 ## What's next
 
-1. Build the React frontend against this API (separate project)
+1. Build the React frontend against this API (separate project) — including
+   the Google Sign-In button (Google Identity Services) and email/password
+   forms calling the routes above
 2. Real product photos (replace the `picsum.photos` placeholders in
    `prisma/seed.ts`)
 3. A "forgot password" flow and a safer way to promote a user to admin
 4. WhatsApp/email order-status notifications
 5. Deploy to Railway once ready for the app to be reachable outside your
-   own machine
+   own machine — remember to set `GOOGLE_CLIENT_ID` and add the deployed
+   frontend's real URL to the Google Cloud OAuth client's Authorized
+   JavaScript origins

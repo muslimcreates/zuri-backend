@@ -44,9 +44,17 @@ model User {
   id           String   @id @default(cuid())
   name         String
   email        String   @unique
-  passwordHash String
-  role         Role     @default(CUSTOMER)
-  createdAt    DateTime @default(now())
+  // Null for accounts created via Google Sign-In that have never set a
+  // password. Every route that checks a password must handle null (see
+  // src/routes/auth.ts).
+  passwordHash String?
+  // Google's stable per-account id ("sub" claim), set once a user signs in
+  // with Google — either at signup, or linked onto an existing
+  // email/password account that shares the same email.
+  googleId  String?  @unique
+  avatarUrl String?
+  role      Role     @default(CUSTOMER)
+  createdAt DateTime @default(now())
 
   addresses Address[]
   orders    Order[]

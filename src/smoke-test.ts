@@ -49,15 +49,15 @@ async function main() {
   ok("POST /api/auth/signup -> 201", signup.status === 201);
 
   const me = await customer("/api/auth/me");
-  const meBody = await me.json();
+  const meBody = (await me.json()) as any;
   ok("GET /api/auth/me returns the signed-up user", meBody.email === email);
 
   const categories = await customer("/api/categories");
-  const categoriesBody = await categories.json();
+  const categoriesBody = (await categories.json()) as any;
   ok("GET /api/categories returns seeded categories", categoriesBody.length > 0);
 
   const products = await customer("/api/products");
-  const productsBody = await products.json();
+  const productsBody = (await products.json()) as any;
   ok("GET /api/products returns seeded products", productsBody.length > 0);
 
   const firstProduct = productsBody[0];
@@ -78,12 +78,12 @@ async function main() {
       paymentMethod: "BANK_TRANSFER",
     }),
   });
-  const order = await checkout.json();
+  const order = (await checkout.json()) as any;
   ok("POST /api/orders -> 201", checkout.status === 201);
   ok("Order has an orderNumber", typeof order.orderNumber === "string");
 
   const myOrders = await customer("/api/orders");
-  const myOrdersBody = await myOrders.json();
+  const myOrdersBody = (await myOrders.json()) as any;
   ok("GET /api/orders includes the new order", myOrdersBody.some((o: any) => o.id === order.id));
 
   const otherOrder = await customer(`/api/orders/${order.orderNumber}`);
@@ -101,12 +101,12 @@ async function main() {
   ok("POST /api/auth/login (admin) -> 200", adminLogin.status === 200);
 
   const dashboard = await admin("/api/admin/dashboard");
-  const dashboardBody = await dashboard.json();
+  const dashboardBody = (await dashboard.json()) as any;
   ok("GET /api/admin/dashboard -> 200", dashboard.status === 200);
   ok("Dashboard totalOrders > 0", dashboardBody.totalOrders > 0);
 
   const adminOrders = await admin("/api/admin/orders");
-  const adminOrdersBody = await adminOrders.json();
+  const adminOrdersBody = (await adminOrders.json()) as any;
   ok(
     "GET /api/admin/orders includes the smoke-test order",
     adminOrdersBody.some((o: any) => o.id === order.id)
@@ -116,7 +116,7 @@ async function main() {
     method: "PATCH",
     body: JSON.stringify({ status: "PAYMENT_RECEIVED", paymentNote: "havale ref 12345" }),
   });
-  const statusUpdateBody = await statusUpdate.json();
+  const statusUpdateBody = (await statusUpdate.json()) as any;
   ok("PATCH order status -> 200", statusUpdate.status === 200);
   ok("Order status updated", statusUpdateBody.status === "PAYMENT_RECEIVED");
 
@@ -133,11 +133,11 @@ async function main() {
       active: true,
     }),
   });
-  const newProductBody = await newProduct.json();
+  const newProductBody = (await newProduct.json()) as any;
   ok("POST /api/admin/products -> 201", newProduct.status === 201);
 
   const shopAfterCreate = await customer("/api/products");
-  const shopAfterCreateBody = await shopAfterCreate.json();
+  const shopAfterCreateBody = (await shopAfterCreate.json()) as any;
   ok(
     "New product visible on public product list",
     shopAfterCreateBody.some((p: any) => p.id === newProductBody.id)
@@ -149,7 +149,7 @@ async function main() {
   ok("DELETE /api/admin/products/:id -> 204", hideProduct.status === 204);
 
   const shopAfterHide = await customer("/api/products");
-  const shopAfterHideBody = await shopAfterHide.json();
+  const shopAfterHideBody = (await shopAfterHide.json()) as any;
   ok(
     "Hidden product no longer visible on public product list",
     !shopAfterHideBody.some((p: any) => p.id === newProductBody.id)

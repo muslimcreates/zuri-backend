@@ -88,6 +88,19 @@
         {
           "name": "Log out",
           "request": { "method": "POST", "url": "{{baseUrl}}/api/auth/logout" }
+        },
+        {
+          "name": "Google Sign-In (needs a real token, see description)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/google",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"credential\": \"paste-a-real-google-id-token-here\"\n}"
+            },
+            "description": "This can't really be exercised from Postman: `credential` has to be a real Google ID token, which is only issued by Google's own sign-in script running in a browser (see README 'Setting up Google Sign-In'). This request is here mainly to document the shape — running it as-is will correctly fail with 400 'Invalid Google credential.'"
+          }
         }
       ]
     },
