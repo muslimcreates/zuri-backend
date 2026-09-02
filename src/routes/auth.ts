@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../lib/prisma";
 import { setSessionCookie, clearSessionCookie } from "../lib/session";
+import { sendVerificationEmail } from "../lib/email";
 import { BadRequestError, ConflictError, UnauthorizedError } from "../lib/errors";
 import { requireAuth } from "../middleware/auth";
 
@@ -15,6 +17,7 @@ function toUserDTO(user: {
   email: string;
   role: "CUSTOMER" | "ADMIN";
   avatarUrl?: string | null;
+  emailVerified: boolean;
 }) {
   return {
     id: user.id,
@@ -22,7 +25,32 @@ function toUserDTO(user: {
     email: user.email,
     role: user.role,
     avatarUrl: user.avatarUrl ?? null,
+    emailVerified: user.emailVerified,
   };
+}
+
+// Verification tokens: generate a random value, email the raw value, store
+// only its hash (same idea as a password) so a leaked database never hands
+// out working verification links. 24 hour expiry.
+const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+function hashToken(rawToken: string): string {
+  return crypto.createHash("sha256").update(rawToken).digest("hex");
+}
+
+async function issueVerificationEmail(user: { id: string; name: string; email: string }) {
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      emailVerificationTokenHash: hashToken(rawToken),
+      emailVerificationExpires: new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS),
+    },
+  });
+
+  const clientOrigin = process.env.CLIENT_ORIGIN ?? "http://localhost:5173";
+  const verifyUrl = `${clientOrigin}/verify-email?token=${rawToken}`;
+  await sendVerificationEmail({ to: user.email, name: user.name, verifyUrl });
 }
 
 const SignupSchema = z.object({
@@ -41,6 +69,13 @@ authRouter.post("/signup", async (req, res) => {
   const user = await prisma.user.create({
     data: { name, email, passwordHash, role: "CUSTOMER" },
   });
+
+  // Don't block signup on email delivery — issue the session either way,
+  // and let issueVerificationEmail's own error handling (see lib/email.ts)
+  // absorb a broken email provider.
+  await issueVerificationEmail(user).catch((err) =>
+    console.error("[auth] Failed to issue verification email:", err)
+  );
 
   setSessionCookie(res, { userId: user.id, role: user.role });
   res.status(201).json(toUserDTO(user));
@@ -121,17 +156,57 @@ authRouter.post("/google", async (req, res) => {
   if (!user) {
     // Not linked yet: if an account with this email already exists (e.g.
     // they originally signed up with a password), link Google onto it
-    // instead of creating a duplicate account.
+    // instead of creating a duplicate account. Google already verified
+    // this email, so mark it verified either way.
     const existing = await prisma.user.findUnique({ where: { email } });
     user = existing
-      ? await prisma.user.update({ where: { id: existing.id }, data: { googleId, avatarUrl } })
+      ? await prisma.user.update({
+          where: { id: existing.id },
+          data: { googleId, avatarUrl, emailVerified: true },
+        })
       : await prisma.user.create({
-          data: { name, email, googleId, avatarUrl, role: "CUSTOMER" },
+          data: { name, email, googleId, avatarUrl, emailVerified: true, role: "CUSTOMER" },
         });
   }
 
   setSessionCookie(res, { userId: user.id, role: user.role });
   res.json(toUserDTO(user));
+});
+
+// --- Email verification ---
+
+authRouter.get("/verify-email", async (req, res) => {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  if (!token) throw new BadRequestError("Missing verification token.");
+
+  const user = await prisma.user.findUnique({
+    where: { emailVerificationTokenHash: hashToken(token) },
+  });
+
+  if (!user || !user.emailVerificationExpires || user.emailVerificationExpires < new Date()) {
+    throw new BadRequestError("This verification link is invalid or has expired.");
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { emailVerified: true, emailVerificationTokenHash: null, emailVerificationExpires: null },
+  });
+
+  res.json({ verified: true });
+});
+
+// Lets a logged-in user request a fresh link, e.g. if the first one expired
+// or landed in spam.
+authRouter.post("/resend-verification", requireAuth, async (req, res) => {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.userId } });
+
+  if (user.emailVerified) {
+    res.json({ alreadyVerified: true });
+    return;
+  }
+
+  await issueVerificationEmail(user);
+  res.json({ sent: true });
 });
 
 authRouter.post("/logout", (_req, res) => {

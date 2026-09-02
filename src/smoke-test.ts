@@ -51,6 +51,15 @@ async function main() {
   const me = await customer("/api/auth/me");
   const meBody = (await me.json()) as any;
   ok("GET /api/auth/me returns the signed-up user", meBody.email === email);
+  ok("New signup starts emailVerified: false", meBody.emailVerified === false);
+
+  const resendVerification = await customer("/api/auth/resend-verification", { method: "POST" });
+  const resendBody = (await resendVerification.json()) as any;
+  ok("POST /api/auth/resend-verification -> 200", resendVerification.status === 200);
+  ok("Resend response reports sent: true for an unverified account", resendBody.sent === true);
+
+  const badVerify = await customer("/api/auth/verify-email?token=not-a-real-token");
+  ok("GET /api/auth/verify-email with a bad token -> 400", badVerify.status === 400);
 
   const categories = await customer("/api/categories");
   const categoriesBody = (await categories.json()) as any;

@@ -131,15 +131,43 @@ Services](https://developers.google.com/identity/gsi/web/guides/overview)
 (a small script tag, no extra backend work) to render the button and get a
 token, then send that token to `POST /api/auth/google` below.
 
-## 3. Run the API
+## 3. Set up email verification
+
+Also optional to start — without it, signup still works and just prints the
+verification link to your server console instead of emailing it, which is
+fine for local development. Set this up when you want real emails going
+out (including once you deploy).
+
+We use [Resend](https://resend.com) — free for this volume (100
+emails/day), and unlike the payment gateways, it doesn't need a registered
+company, just a domain you control.
+
+1. Sign up at [resend.com](https://resend.com) and go to **API Keys** in
+   the dashboard. Create a key and copy it.
+2. Paste it into `.env` as `RESEND_API_KEY`.
+3. For `EMAIL_FROM`, you need a sending address on a domain you've verified
+   with Resend (**Domains** in their dashboard → add your domain → add the
+   DNS records they show you at your domain registrar). If you don't have
+   a domain yet, you have two options for now:
+   - Buy a cheap domain (e.g. from Namecheap/Cloudflare, often
+     $10-15/year) just for sending — you don't need a website on it, only
+     the DNS records Resend asks for.
+   - Skip this step entirely and leave `RESEND_API_KEY` unset until you do
+     have a domain — verification links will keep working via the console
+     fallback in the meantime, nothing else depends on this.
+4. Once your domain is verified, set `EMAIL_FROM` to an address on it, e.g.
+   `Zuri Express <noreply@zuriexpress.com>`.
+
+## 4. Run the API
 
 ```bash
 npm install
 cp .env.example .env
 # Edit .env: set SESSION_SECRET (openssl rand -base64 32), GOOGLE_CLIENT_ID
-# (from step 2, or leave the placeholder if skipping Google Sign-In for
-# now — email/password still works either way), and confirm DATABASE_URL
-# matches the password you set above.
+# (from step 2, optional for now — email/password still works without it),
+# RESEND_API_KEY + EMAIL_FROM (from step 3, also optional — signup works
+# without them, links just print to the console instead), and confirm
+# DATABASE_URL matches the password you set above.
 
 npx prisma migrate dev    # creates all tables from prisma/schema.prisma
 npx prisma db seed        # sample Kenyan product catalog + admin user
@@ -154,7 +182,7 @@ Check it's alive: `curl http://localhost:4000/health` → `{"ok":true}`.
 "forgot password" flow yet; update it directly via
 `npx prisma studio` (a GUI for the database) or a short script.
 
-## 4. Try it out
+## 5. Try it out
 
 There's no UI yet, so use `curl`, [Postman](https://www.postman.com/), or
 similar. A couple of examples (note `-c`/`-b cookies.txt` to keep the
@@ -196,6 +224,8 @@ user (any role); **admin** requires `role: ADMIN`.
 | POST | `/auth/signup` | — | Create a customer account, starts a session |
 | POST | `/auth/login` | — | Log in, starts a session |
 | POST | `/auth/google` | — | Sign in with a Google ID token (`{ credential }`), starts a session — creates the account on first use, or links Google onto a matching existing email |
+| GET | `/auth/verify-email?token=...` | — | Confirms the email address the link was sent to |
+| POST | `/auth/resend-verification` | auth | Sends a fresh verification link |
 | POST | `/auth/logout` | — | Clears the session |
 | GET | `/auth/me` | auth | Current user |
 | GET | `/categories` | — | List categories |
@@ -262,6 +292,11 @@ src/
   account once they've signed in with it at least once (either a brand new
   account, or an existing email/password one that happened to share the
   same email).
+- `User.emailVerified` is tracked but **not currently enforced** — an
+  unverified user can still log in and check out. It's there for the
+  frontend to show a "please verify your email" nudge. Tighten this later
+  (e.g. require it before checkout) by checking `req.user` in
+  `src/middleware/auth.ts` if you decide you want that.
 
 ## Deploying (when you're ready)
 

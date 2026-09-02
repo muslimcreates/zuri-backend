@@ -53,6 +53,15 @@ model User {
   // email/password account that shares the same email.
   googleId  String?  @unique
   avatarUrl String?
+
+  // Email verification. Google accounts are considered verified
+  // automatically (Google already confirmed the address). Email/password
+  // accounts start false; a signed verification link flips it true. Not
+  // currently required to log in or check out — see README.
+  emailVerified              Boolean   @default(false)
+  emailVerificationTokenHash String?   @unique
+  emailVerificationExpires   DateTime?
+
   role      Role     @default(CUSTOMER)
   createdAt DateTime @default(now())
 

@@ -90,6 +90,22 @@
           "request": { "method": "POST", "url": "{{baseUrl}}/api/auth/logout" }
         },
         {
+          "name": "Resend verification email",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/resend-verification",
+            "description": "Requires being logged in (run Sign up above first). If RESEND_API_KEY isn't set on the server, check the server's own console output for the verification link instead of an inbox."
+          }
+        },
+        {
+          "name": "Verify email (paste a token from the server console)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/auth/verify-email?token=paste-token-here",
+            "description": "In development, the token is printed to the server's console when a signup or resend happens (no real email is sent unless RESEND_API_KEY is configured). Copy it from there and paste it into the token query param above."
+          }
+        },
+        {
           "name": "Google Sign-In (needs a real token, see description)",
           "request": {
             "method": "POST",
