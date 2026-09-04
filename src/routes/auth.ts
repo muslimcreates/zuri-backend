@@ -5,6 +5,7 @@ import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../lib/prisma";
 import { setSessionCookie, clearSessionCookie } from "../lib/session";
 import { sendVerificationEmail } from "../lib/email";
+import { addToMarketingAudience } from "../lib/marketing";
 import { BadRequestError, ConflictError, UnauthorizedError } from "../lib/errors";
 import { requireAuth } from "../middleware/auth";
 import {
@@ -60,6 +61,14 @@ const SignupSchema = z.object({
   name: z.string().trim().min(2, "Name must be at least 2 characters."),
   email: z.email("Enter a valid email address.").trim(),
   password: z.string().min(8, "Password must be at least 8 characters."),
+  // Agreeing to the Terms & Conditions (which spell out that account holders
+  // receive order/account emails and occasional promotional ones) is what
+  // captures marketing consent — there's no separate opt-in checkbox. Must
+  // be explicitly `true`; anything else (missing, false) fails validation
+  // with a field error the frontend shows next to the checkbox.
+  agreeToTerms: z
+    .boolean()
+    .refine((v) => v === true, { message: "You must agree to the Terms & Conditions to create an account." }),
 });
 
 authRouter.post("/signup", async (req, res) => {
@@ -70,7 +79,10 @@ authRouter.post("/signup", async (req, res) => {
 
   const passwordHash = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
-    data: { name, email, passwordHash, role: "CUSTOMER" },
+    // agreeToTerms is required to reach this point (see SignupSchema above),
+    // and that agreement is what consents to marketing email, so every
+    // account created here starts opted in.
+    data: { name, email, passwordHash, role: "CUSTOMER", marketingOptIn: true },
   });
 
   // Don't block signup on email delivery — issue the session either way,
@@ -78,6 +90,9 @@ authRouter.post("/signup", async (req, res) => {
   // absorb a broken email provider.
   await issueVerificationEmail(user).catch((err) =>
     console.error("[auth] Failed to issue verification email:", err)
+  );
+  await addToMarketingAudience({ email: user.email, name: user.name }).catch((err) =>
+    console.error("[auth] Failed to add to marketing audience:", err)
   );
 
   setSessionCookie(res, { userId: user.id, role: user.role });
@@ -174,10 +189,18 @@ authRouter.post("/google", async (req, res) => {
         data: { googleId, avatarUrl, emailVerified: true },
       });
     } else {
+      // A brand new account, same as the email/password signup above — the
+      // frontend shows the same "by continuing you agree to our Terms &
+      // Conditions" notice next to the Google button, so this is where that
+      // consent is captured for the Google path (there's no separate
+      // checkbox to check in a one-click Google flow).
       user = await prisma.user.create({
-        data: { name, email, googleId, avatarUrl, emailVerified: true, role: "CUSTOMER" },
+        data: { name, email, googleId, avatarUrl, emailVerified: true, role: "CUSTOMER", marketingOptIn: true },
       });
       isNewUser = true;
+      await addToMarketingAudience({ email: user.email, name: user.name }).catch((err) =>
+        console.error("[auth] Failed to add to marketing audience:", err)
+      );
     }
   }
 

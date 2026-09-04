@@ -162,7 +162,33 @@ company, just a domain you control.
 4. Once your domain is verified, set `EMAIL_FROM` to an address on it, e.g.
    `Zuri Express <noreply@zuriexpress.com>`.
 
-## 4. Run the API
+## 4. Set up marketing emails
+
+Optional, and only meaningful once step 3 above is done (same Resend
+account, same verified domain). This is for promotional emails ("new stock
+in", sales, seasonal offers) — distinct from the transactional emails above,
+which always go out regardless.
+
+Every signup agrees to the Terms & Conditions, which spell out that
+account holders receive these — there's no separate opt-in checkbox — so
+`User.marketingOptIn` is set `true` for every account and mirrored into a
+Resend **Audience** at signup (`src/lib/marketing.ts`). Actually composing
+and sending a promotional email is done from Resend's own dashboard, not
+from this codebase — there's no in-app "send announcement" feature:
+
+1. In the Resend dashboard, go to **Audiences** and create one (e.g. name
+   it "Zuri Express customers"). Copy its id.
+2. Paste it into `.env` as `RESEND_AUDIENCE_ID`.
+3. Whenever you have something to announce: **Audiences → your audience →
+   Broadcasts → New broadcast**, write it (Resend has a simple editor), and
+   send. Resend automatically adds an unsubscribe link and keeps track of
+   who's unsubscribed — you never have to touch that.
+4. Free tier is 3,000 emails/month, 100/day — plenty to start.
+
+If `RESEND_AUDIENCE_ID` isn't set, signups still work exactly as before,
+they're just not added to any audience (logged to the console instead).
+
+## 5. Run the API
 
 ```bash
 npm install
@@ -186,7 +212,7 @@ Check it's alive: `curl http://localhost:4000/health` → `{"ok":true}`.
 "forgot password" flow yet; update it directly via
 `npx prisma studio` (a GUI for the database) or a short script.
 
-## 5. Try it out
+## 6. Try it out
 
 There's no UI yet, so use `curl`, [Postman](https://www.postman.com/), or
 similar. A couple of examples (note `-c`/`-b cookies.txt` to keep the
@@ -196,10 +222,11 @@ session cookie between requests, the way a browser would):
 # Browse products
 curl http://localhost:4000/api/products
 
-# Sign up (saves the session cookie to cookies.txt)
+# Sign up (saves the session cookie to cookies.txt) — agreeToTerms must be
+# true, it's how marketing-email consent is captured (see step 4 above)
 curl -c cookies.txt -X POST http://localhost:4000/api/auth/signup \
   -H "Content-Type: application/json" \
-  -d '{"name":"Test User","email":"test@example.com","password":"TestPass123!"}'
+  -d '{"name":"Test User","email":"test@example.com","password":"TestPass123!","agreeToTerms":true}'
 
 # Cart and checkout require a verified email (see "Email verification"
 # below) — check the server console for the code/link this signup printed,
@@ -237,7 +264,7 @@ using the cart or checking out does); **admin** requires `role: ADMIN`.
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/auth/signup` | — | Create a customer account, starts a session |
+| POST | `/auth/signup` | — | Create a customer account (`{name, email, password, agreeToTerms}` — `agreeToTerms` must be `true`), starts a session |
 | POST | `/auth/login` | — | Log in, starts a session |
 | POST | `/auth/google` | — | Sign in with a Google ID token (`{ credential }`), starts a session — creates the account on first use, or links Google onto a matching existing email |
 | GET | `/auth/verify-email?token=...` | — | Confirms the email address, via the link |
@@ -337,6 +364,12 @@ src/
   `POST /auth/verify-email-code`, so it can't be brute-forced the way a
   global lookup would allow); either one verifies the account, and both
   share one 24-hour expiry (see `src/lib/verification.ts`).
+- **Marketing consent is bundled into the Terms & Conditions**, not a
+  separate checkbox — every signup requires `agreeToTerms: true`, which sets
+  `User.marketingOptIn: true` and adds the address to a Resend Audience (see
+  "Set up marketing emails" above). There's no in-app way to opt back out
+  yet; unsubscribing happens via the link Resend adds automatically to every
+  promotional email.
 
 ## Deploying (when you're ready)
 

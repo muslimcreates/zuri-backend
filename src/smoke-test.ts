@@ -47,7 +47,7 @@ async function main() {
 
   const signup = await customer("/api/auth/signup", {
     method: "POST",
-    body: JSON.stringify({ name: "Smoke Test", email, password: "TestPass123!" }),
+    body: JSON.stringify({ name: "Smoke Test", email, password: "TestPass123!", agreeToTerms: true }),
   });
   ok("POST /api/auth/signup -> 201", signup.status === 201);
 
@@ -146,7 +146,7 @@ async function main() {
   const linkEmail = `smoke-link${Date.now()}@example.com`;
   await linkUser("/api/auth/signup", {
     method: "POST",
-    body: JSON.stringify({ name: "Smoke Link", email: linkEmail, password: "TestPass123!" }),
+    body: JSON.stringify({ name: "Smoke Link", email: linkEmail, password: "TestPass123!", agreeToTerms: true }),
   });
   const rawToken = generateVerificationToken();
   await prisma.user.update({
@@ -222,7 +222,7 @@ async function main() {
   const otherEmail = `smoke-other${Date.now()}@example.com`;
   await otherBrowser("/api/auth/signup", {
     method: "POST",
-    body: JSON.stringify({ name: "Smoke Test Other", email: otherEmail, password: "TestPass123!" }),
+    body: JSON.stringify({ name: "Smoke Test Other", email: otherEmail, password: "TestPass123!", agreeToTerms: true }),
   });
   const otherRawCode = generateVerificationCode();
   await prisma.user.update({

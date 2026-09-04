@@ -69,6 +69,17 @@ model User {
   emailVerificationCodeHash  String?
   emailVerificationExpires   DateTime?
 
+  // Promotional/marketing emails ("new arrivals", sales, etc.) — distinct
+  // from the transactional emails above (verification, order confirmation),
+  // which always go out regardless of this flag. Set true the moment
+  // someone agrees to the Terms & Conditions at signup (see
+  // SignupSchema.agreeToTerms in routes/auth.ts), which is where consent to
+  // receive these is captured. Mirrored into a Resend Audience (see
+  // src/lib/marketing.ts) — actually *sending* a promotional email is done
+  // from Resend's own dashboard (Broadcasts), not from this codebase, so
+  // there's no in-app "send announcement" feature to build or maintain.
+  marketingOptIn Boolean @default(false)
+
   role      Role     @default(CUSTOMER)
   createdAt DateTime @default(now())
 
