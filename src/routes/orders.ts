@@ -1,22 +1,16 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, requireVerifiedEmail } from "../middleware/auth";
 import { createOrder } from "../lib/orders";
 import { MANUAL_PAYMENT_VALUES } from "../lib/payments";
 import { NotFoundError, ForbiddenError } from "../lib/errors";
+import { sendNewOrderNotification } from "../lib/email";
+import { clearCart, getCartItems } from "../lib/cart";
 
 export const ordersRouter = Router();
 
 const CheckoutSchema = z.object({
-  items: z
-    .array(
-      z.object({
-        productId: z.string().min(1),
-        quantity: z.coerce.number().int().positive(),
-      })
-    )
-    .min(1, "Cart is empty."),
   address: z.object({
     fullName: z.string().trim().min(2, "Enter the recipient's full name."),
     phone: z.string().trim().min(7, "Enter a valid phone number."),
@@ -27,10 +21,16 @@ const CheckoutSchema = z.object({
   paymentMethod: z.enum(MANUAL_PAYMENT_VALUES),
 });
 
-// POST /api/orders — place an order from a cart payload (see src/lib/orders.ts
-// for why the cart itself isn't persisted server-side).
-ordersRouter.post("/", requireAuth, async (req, res) => {
-  const { items, address, paymentMethod } = CheckoutSchema.parse(req.body);
+// POST /api/orders — place an order from the caller's server-side cart (see
+// src/lib/cart.ts). The client only supplies delivery address + payment
+// method; the items themselves always come from the cart we hold, never
+// from anything the client sends, so there's no way to check out items you
+// never actually added.
+ordersRouter.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
+  const { address, paymentMethod } = CheckoutSchema.parse(req.body);
+
+  const cartItems = await getCartItems(req.user!.userId);
+  const items = cartItems.map((ci) => ({ productId: ci.productId, quantity: ci.quantity }));
 
   const order = await createOrder({
     userId: req.user!.userId,
@@ -38,6 +38,26 @@ ordersRouter.post("/", requireAuth, async (req, res) => {
     address,
     paymentMethod,
   });
+
+  // Only reached once the order is actually created — if createOrder threw
+  // (empty cart, out of stock, etc.) the cart is left exactly as it was.
+  await clearCart(req.user!.userId);
+
+  // Fire-and-forget: the admin's only heads-up that a new order exists
+  // today is this email (see lib/email.ts). Never let it hold up or break
+  // the checkout response.
+  const customer = await prisma.user.findUnique({ where: { id: req.user!.userId } });
+  if (customer) {
+    sendNewOrderNotification({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      customerName: customer.name,
+      customerEmail: customer.email,
+      totalKurus: order.subtotalKurus,
+      paymentMethod: order.paymentMethod,
+      itemsSummary: order.items.map((i) => `${i.quantity}x ${i.productName}`).join(", "),
+    }).catch((err) => console.error("[orders] Failed to send new-order notification:", err));
+  }
 
   res.status(201).json(order);
 });

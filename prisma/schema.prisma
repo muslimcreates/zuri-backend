@@ -56,10 +56,17 @@ model User {
 
   // Email verification. Google accounts are considered verified
   // automatically (Google already confirmed the address). Email/password
-  // accounts start false; a signed verification link flips it true. Not
-  // currently required to log in or check out — see README.
+  // accounts start false. Every verification email carries both a link
+  // (emailVerificationTokenHash — long, unguessable, looked up globally by
+  // GET /api/auth/verify-email) and a short code (emailVerificationCodeHash
+  // — typed in on the verify-email page, checked only against the caller's
+  // own account via POST /api/auth/verify-email-code, so a 6-digit code is
+  // not brute-forceable the way a global lookup would make it). Both share
+  // one expiry and are cleared together once either one succeeds. Required
+  // to use the cart or check out — see README "Email verification".
   emailVerified              Boolean   @default(false)
   emailVerificationTokenHash String?   @unique
+  emailVerificationCodeHash  String?
   emailVerificationExpires   DateTime?
 
   role      Role     @default(CUSTOMER)
@@ -67,6 +74,7 @@ model User {
 
   addresses Address[]
   orders    Order[]
+  cart      Cart?
 }
 
 model Address {
@@ -109,8 +117,39 @@ model Product {
   category   Category @relation(fields: [categoryId], references: [id])
 
   orderItems OrderItem[]
+  cartItems  CartItem[]
 
   @@index([categoryId])
+}
+
+// One cart per user, created lazily on first add-to-cart. Replaces the old
+// design where the frontend kept cart state in localStorage — that meant
+// carts didn't survive a new device/browser, and (until fixed) could even
+// leak between users sharing one browser. Server-side means a user's cart
+// now follows their account everywhere, which checkout (see routes/orders.ts)
+// also relies on: it reads the cart directly rather than trusting a
+// client-sent item list.
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model CartItem {
+  id        String   @id @default(cuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, productId])
+  @@index([cartId])
 }
 
 model Order {

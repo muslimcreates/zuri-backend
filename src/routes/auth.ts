@@ -1,13 +1,18 @@
 import { Router } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import crypto from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../lib/prisma";
 import { setSessionCookie, clearSessionCookie } from "../lib/session";
 import { sendVerificationEmail } from "../lib/email";
 import { BadRequestError, ConflictError, UnauthorizedError } from "../lib/errors";
 import { requireAuth } from "../middleware/auth";
+import {
+  VERIFICATION_TTL_MS,
+  generateVerificationCode,
+  generateVerificationToken,
+  hashVerificationSecret,
+} from "../lib/verification";
 
 export const authRouter = Router();
 
@@ -29,28 +34,26 @@ function toUserDTO(user: {
   };
 }
 
-// Verification tokens: generate a random value, email the raw value, store
-// only its hash (same idea as a password) so a leaked database never hands
-// out working verification links. 24 hour expiry.
-const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
-
-function hashToken(rawToken: string): string {
-  return crypto.createHash("sha256").update(rawToken).digest("hex");
-}
-
+// Verification tokens + codes: generate random values, email the raw
+// values, store only their hashes (same idea as a password) so a leaked
+// database never hands out working verification links/codes. Both share
+// one 24 hour expiry and are cleared together once either one succeeds
+// (see GET /verify-email and POST /verify-email-code below).
 async function issueVerificationEmail(user: { id: string; name: string; email: string }) {
-  const rawToken = crypto.randomBytes(32).toString("hex");
+  const rawToken = generateVerificationToken();
+  const rawCode = generateVerificationCode();
   await prisma.user.update({
     where: { id: user.id },
     data: {
-      emailVerificationTokenHash: hashToken(rawToken),
-      emailVerificationExpires: new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS),
+      emailVerificationTokenHash: hashVerificationSecret(rawToken),
+      emailVerificationCodeHash: hashVerificationSecret(rawCode),
+      emailVerificationExpires: new Date(Date.now() + VERIFICATION_TTL_MS),
     },
   });
 
   const clientOrigin = process.env.CLIENT_ORIGIN ?? "http://localhost:5173";
   const verifyUrl = `${clientOrigin}/verify-email?token=${rawToken}`;
-  await sendVerificationEmail({ to: user.email, name: user.name, verifyUrl });
+  await sendVerificationEmail({ to: user.email, name: user.name, verifyUrl, code: rawCode });
 }
 
 const SignupSchema = z.object({
@@ -152,6 +155,12 @@ authRouter.post("/google", async (req, res) => {
 
   // Already signed in with Google before -> just log them in.
   let user = await prisma.user.findUnique({ where: { googleId } });
+  // Tracks whether we actually created an account just now, vs. logging
+  // into or linking onto one that already existed — the frontend uses this
+  // to greet a brand-new account with "Welcome" and everyone else (already
+  // had this Google id, or already had a password account with this email)
+  // with "Welcome back".
+  let isNewUser = false;
 
   if (!user) {
     // Not linked yet: if an account with this email already exists (e.g.
@@ -159,18 +168,21 @@ authRouter.post("/google", async (req, res) => {
     // instead of creating a duplicate account. Google already verified
     // this email, so mark it verified either way.
     const existing = await prisma.user.findUnique({ where: { email } });
-    user = existing
-      ? await prisma.user.update({
-          where: { id: existing.id },
-          data: { googleId, avatarUrl, emailVerified: true },
-        })
-      : await prisma.user.create({
-          data: { name, email, googleId, avatarUrl, emailVerified: true, role: "CUSTOMER" },
-        });
+    if (existing) {
+      user = await prisma.user.update({
+        where: { id: existing.id },
+        data: { googleId, avatarUrl, emailVerified: true },
+      });
+    } else {
+      user = await prisma.user.create({
+        data: { name, email, googleId, avatarUrl, emailVerified: true, role: "CUSTOMER" },
+      });
+      isNewUser = true;
+    }
   }
 
   setSessionCookie(res, { userId: user.id, role: user.role });
-  res.json(toUserDTO(user));
+  res.json({ ...toUserDTO(user), isNewUser });
 });
 
 // --- Email verification ---
@@ -180,7 +192,7 @@ authRouter.get("/verify-email", async (req, res) => {
   if (!token) throw new BadRequestError("Missing verification token.");
 
   const user = await prisma.user.findUnique({
-    where: { emailVerificationTokenHash: hashToken(token) },
+    where: { emailVerificationTokenHash: hashVerificationSecret(token) },
   });
 
   if (!user || !user.emailVerificationExpires || user.emailVerificationExpires < new Date()) {
@@ -189,7 +201,53 @@ authRouter.get("/verify-email", async (req, res) => {
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { emailVerified: true, emailVerificationTokenHash: null, emailVerificationExpires: null },
+    data: {
+      emailVerified: true,
+      emailVerificationTokenHash: null,
+      emailVerificationCodeHash: null,
+      emailVerificationExpires: null,
+    },
+  });
+
+  res.json({ verified: true });
+});
+
+// Same as GET /verify-email above, but for the short code instead of the
+// link's token. Scoped to the logged-in caller's own account (rather than
+// looking the code up globally, the way the token is) — a 6-digit code is
+// guessable enough that a global lookup would let anyone brute-force *some*
+// account's code; requiring req.user narrows a guess to only the attacker's
+// own already-logged-in account, which gains them nothing.
+const VerifyCodeSchema = z.object({
+  code: z.string().trim().min(1, "Enter the 6-digit code."),
+});
+
+authRouter.post("/verify-email-code", requireAuth, async (req, res) => {
+  const { code } = VerifyCodeSchema.parse(req.body);
+
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.userId } });
+
+  if (user.emailVerified) {
+    res.json({ verified: true });
+    return;
+  }
+
+  const matches =
+    !!user.emailVerificationCodeHash &&
+    user.emailVerificationCodeHash === hashVerificationSecret(code);
+
+  if (!matches || !user.emailVerificationExpires || user.emailVerificationExpires < new Date()) {
+    throw new BadRequestError("That code is incorrect or has expired.");
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      emailVerified: true,
+      emailVerificationTokenHash: null,
+      emailVerificationCodeHash: null,
+      emailVerificationExpires: null,
+    },
   });
 
   res.json({ verified: true });

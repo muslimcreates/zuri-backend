@@ -6,6 +6,7 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 import { authRouter } from "./routes/auth";
 import { categoriesRouter } from "./routes/categories";
 import { productsRouter } from "./routes/products";
+import { cartRouter } from "./routes/cart";
 import { ordersRouter } from "./routes/orders";
 import { adminProductsRouter } from "./routes/adminProducts";
 import { adminOrdersRouter } from "./routes/adminOrders";
@@ -29,6 +30,7 @@ export function createApp() {
   app.use("/api/auth", authRouter);
   app.use("/api/categories", categoriesRouter);
   app.use("/api/products", productsRouter);
+  app.use("/api/cart", cartRouter);
   app.use("/api/orders", ordersRouter);
   app.use("/api/admin/products", adminProductsRouter);
   app.use("/api/admin/orders", adminOrdersRouter);

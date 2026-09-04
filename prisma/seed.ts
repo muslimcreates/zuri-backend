@@ -5,15 +5,24 @@ const prisma = new PrismaClient();
 
 async function main() {
   // --- Admin user ---
+  // emailVerified: true because this is a placeholder address that can't
+  // receive real mail — admin routes don't require verification anyway
+  // (see requireVerifiedEmail's doc comment), but without this the admin
+  // account would get bounced to /verify-email the moment they land on
+  // /shop after logging in (the default post-login redirect), before they
+  // can navigate on to /admin. update: {...} (not {}) so re-running this
+  // seed against an already-seeded database also fixes an existing admin
+  // row, not just a freshly created one.
   const adminPasswordHash = await bcrypt.hash("ChangeMe123!", 10);
   await prisma.user.upsert({
     where: { email: "admin@zuriexpress.com" },
-    update: {},
+    update: { emailVerified: true },
     create: {
       name: "Zuri Admin",
       email: "admin@zuriexpress.com",
       passwordHash: adminPasswordHash,
       role: "ADMIN",
+      emailVerified: true,
     },
   });
 
@@ -39,8 +48,7 @@ async function main() {
     {
       name: "Jogoo Maize Flour (2kg)",
       slug: "jogoo-maize-flour-2kg",
-      description:
-        "Classic Kenyan maize meal for ugali, imported and stocked locally in Türkiye.",
+      description: "Classic Kenyan maize meal for the perfect ugali.",
       imageUrl: "https://picsum.photos/seed/ze-maize/600/600",
       priceKurus: 18900,
       categorySlug: "groceries",
@@ -50,7 +58,7 @@ async function main() {
     {
       name: "Pishori Rice (5kg)",
       slug: "pishori-rice-5kg",
-      description: "Aromatic Kenyan pishori rice, stocked in our Istanbul store.",
+      description: "Aromatic, fragrant Kenyan pishori rice.",
       imageUrl: "https://picsum.photos/seed/ze-rice/600/600",
       priceKurus: 42500,
       categorySlug: "groceries",
@@ -70,7 +78,7 @@ async function main() {
     {
       name: "Pilau Masala (200g)",
       slug: "pilau-masala-200g",
-      description: "Coastal Kenyan pilau spice blend, imported from Kenya on request.",
+      description: "Coastal Kenyan pilau spice blend for rich, fragrant rice dishes.",
       imageUrl: "https://picsum.photos/seed/ze-pilau/600/600",
       priceKurus: 9500,
       categorySlug: "spices",
@@ -90,7 +98,7 @@ async function main() {
     {
       name: "AA Kenyan Coffee Beans (250g)",
       slug: "aa-kenyan-coffee-beans-250g",
-      description: "Single-origin AA grade coffee, roasted and imported on request.",
+      description: "Single-origin AA grade coffee, expertly roasted.",
       imageUrl: "https://picsum.photos/seed/ze-coffee/600/600",
       priceKurus: 32000,
       categorySlug: "tea-coffee",
@@ -100,8 +108,7 @@ async function main() {
     {
       name: "Kitenge Fabric (6 yards)",
       slug: "kitenge-fabric-6-yards",
-      description:
-        "Vibrant Kenyan kitenge print fabric, sourced from Nairobi on request. Colors vary.",
+      description: "Vibrant Kenyan kitenge print fabric in beautiful bold colors. Colors vary.",
       imageUrl: "https://picsum.photos/seed/ze-kitenge/600/600",
       priceKurus: 65000,
       categorySlug: "fabric-fashion",
@@ -111,7 +118,7 @@ async function main() {
     {
       name: "Maasai Beaded Bracelet Set",
       slug: "maasai-beaded-bracelet-set",
-      description: "Handmade Maasai beadwork bracelets, stocked in Türkiye.",
+      description: "Handmade Maasai beadwork bracelets, a timeless piece of Kenyan craft.",
       imageUrl: "https://picsum.photos/seed/ze-beads/600/600",
       priceKurus: 15000,
       categorySlug: "fabric-fashion",
@@ -131,7 +138,7 @@ async function main() {
     {
       name: "Black Soap (Original)",
       slug: "black-soap-original",
-      description: "Traditional African black soap, imported from Kenya on request.",
+      description: "Traditional African black soap for naturally clear, glowing skin.",
       imageUrl: "https://picsum.photos/seed/ze-soap/600/600",
       priceKurus: 8000,
       categorySlug: "beauty",
@@ -144,7 +151,9 @@ async function main() {
     const { categorySlug, ...data } = p;
     await prisma.product.upsert({
       where: { slug: p.slug },
-      update: {},
+      // Re-running the seed (e.g. after editing copy above) should refresh
+      // existing rows too, not just create missing ones.
+      update: { ...data, categoryId: categories[categorySlug].id },
       create: {
         ...data,
         categoryId: categories[categorySlug].id,

@@ -133,10 +133,14 @@ token, then send that token to `POST /api/auth/google` below.
 
 ## 3. Set up email verification
 
-Also optional to start — without it, signup still works and just prints the
-verification link to your server console instead of emailing it, which is
-fine for local development. Set this up when you want real emails going
-out (including once you deploy).
+A verified email is now **required** to use the cart or check out (see
+"Email verification" below) — but setting up real email delivery itself is
+still optional to start. Without `RESEND_API_KEY` set, signup still works
+and both the verification code and link just print to your server console
+instead of being emailed, which is fine for local development — you can
+copy the code/link from the terminal and use it exactly as a real user
+would. Set up Resend for real deployments so people actually receive the
+email.
 
 We use [Resend](https://resend.com) — free for this volume (100
 emails/day), and unlike the payment gateways, it doesn't need a registered
@@ -197,11 +201,21 @@ curl -c cookies.txt -X POST http://localhost:4000/api/auth/signup \
   -H "Content-Type: application/json" \
   -d '{"name":"Test User","email":"test@example.com","password":"TestPass123!"}'
 
-# Place an order using that session
+# Cart and checkout require a verified email (see "Email verification"
+# below) — check the server console for the code/link this signup printed,
+# then confirm it before the cart calls below will work:
+curl -b cookies.txt -X POST http://localhost:4000/api/auth/verify-email-code \
+  -H "Content-Type: application/json" \
+  -d '{"code": "<the 6-digit code from the console>"}'
+
+# Add something to the cart, then place an order from it using that session
+curl -b cookies.txt -X POST http://localhost:4000/api/cart/items \
+  -H "Content-Type: application/json" \
+  -d '{"productId": "<a product id from /api/products>", "quantity": 1}'
+
 curl -b cookies.txt -X POST http://localhost:4000/api/orders \
   -H "Content-Type: application/json" \
   -d '{
-    "items": [{"productId": "<a product id from /api/products>", "quantity": 1}],
     "address": {"fullName":"Test User","phone":"+905551112233","city":"Istanbul","addressLine":"Test Street 1","postalCode":"34000"},
     "paymentMethod": "BANK_TRANSFER"
   }'
@@ -217,21 +231,29 @@ npm run smoke-test   # requires the dev server to already be running
 ## API reference
 
 All routes are prefixed `/api`. Routes marked **auth** require a logged-in
-user (any role); **admin** requires `role: ADMIN`.
+user (any role); **verified** additionally requires `emailVerified: true`
+(see "Email verification" below — signup itself doesn't require it, only
+using the cart or checking out does); **admin** requires `role: ADMIN`.
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | POST | `/auth/signup` | — | Create a customer account, starts a session |
 | POST | `/auth/login` | — | Log in, starts a session |
 | POST | `/auth/google` | — | Sign in with a Google ID token (`{ credential }`), starts a session — creates the account on first use, or links Google onto a matching existing email |
-| GET | `/auth/verify-email?token=...` | — | Confirms the email address the link was sent to |
-| POST | `/auth/resend-verification` | auth | Sends a fresh verification link |
+| GET | `/auth/verify-email?token=...` | — | Confirms the email address, via the link |
+| POST | `/auth/verify-email-code` | auth | Confirms the email address, via the 6-digit code (`{code}`) — checked only against the caller's own account |
+| POST | `/auth/resend-verification` | auth | Sends a fresh code + link |
 | POST | `/auth/logout` | — | Clears the session |
 | GET | `/auth/me` | auth | Current user |
 | GET | `/categories` | — | List categories |
 | GET | `/products?category=<slug>` | — | List active products, optionally filtered |
 | GET | `/products/:slug` | — | One product |
-| POST | `/orders` | auth | Place an order (see body shape above) |
+| GET | `/cart` | verified | Your cart, items joined with live product data |
+| POST | `/cart/items` | verified | Add a product (`{productId, quantity}`) — increments if already in the cart |
+| PUT | `/cart/items/:productId` | verified | Set an absolute quantity (`{quantity}`) — `<= 0` removes it |
+| DELETE | `/cart/items/:productId` | verified | Remove one product from the cart |
+| DELETE | `/cart` | verified | Empty the whole cart |
+| POST | `/orders` | verified | Place an order from your cart (see body shape above) — the cart is cleared once the order is created |
 | GET | `/orders` | auth | Your own order history |
 | GET | `/orders/:orderNumber` | auth | One of your own orders |
 | GET | `/admin/dashboard` | admin | Order/stock summary stats |
@@ -254,13 +276,21 @@ src/
   server.ts                Entry point — starts the HTTP server
   lib/
     session.ts              Sign/verify the JWT session cookie
-    orders.ts                createOrder() — validates cart server-side
-                             (never trusts client-sent prices), snapshots
+    cart.ts                  Server-side cart: get/add/set-quantity/
+                             remove/clear, always returns items joined
+                             with live product data
+    orders.ts                createOrder() — takes a resolved item list
+                             (routes/orders.ts resolves it from the cart),
+                             never trusts client-sent prices, snapshots
                              prices, decrements stock in a transaction
     payments.ts               Payment provider abstraction (see above)
+    verification.ts            Shared code/token generation + hashing for
+                               email verification (used by routes/auth.ts
+                               and smoke-test.ts)
     errors.ts                  Typed HTTP errors thrown from routes
   middleware/
-    auth.ts                    attachUser / requireAuth / requireAdmin
+    auth.ts                    attachUser / requireAuth / requireAdmin /
+                               requireVerifiedEmail
     errorHandler.ts             Turns thrown errors into JSON responses
   routes/                       One file per resource
   smoke-test.ts                 End-to-end API check (see above)
@@ -276,11 +306,14 @@ src/
   to avoid floating-point rounding bugs. `src/lib/money.ts` converts at the
   edges; the admin product API accepts a plain `priceTRY` number and
   converts it for you.
-- **This API doesn't store carts.** The frontend owns cart state (e.g. in
-  localStorage) and only tells the backend about it at checkout time
-  (`POST /api/orders` takes a list of `{productId, quantity}`). The server
-  always re-fetches real prices and stock from the database — it never
-  trusts prices the client sends.
+- **Carts are stored server-side, per user** (`Cart`/`CartItem` — one cart
+  per user, created lazily on first add-to-cart). This replaced an earlier
+  localStorage-only design once it became clear a browser-local cart doesn't
+  survive switching devices, and can even leak between users sharing one
+  browser. `POST /api/orders` no longer accepts an item list from the
+  client at all — it reads the caller's cart directly and clears it once
+  the order is created. The server always re-fetches real prices and stock
+  from the database regardless — it never trusts prices the client sends.
 - **Order items snapshot** product name/price/fulfillment type at purchase
   time, so editing or hiding a product later never changes past order
   history.
@@ -292,11 +325,18 @@ src/
   account once they've signed in with it at least once (either a brand new
   account, or an existing email/password one that happened to share the
   same email).
-- `User.emailVerified` is tracked but **not currently enforced** — an
-  unverified user can still log in and check out. It's there for the
-  frontend to show a "please verify your email" nudge. Tighten this later
-  (e.g. require it before checkout) by checking `req.user` in
-  `src/middleware/auth.ts` if you decide you want that.
+- **Email verification is enforced on the cart and checkout** — a signed-up
+  user can browse and log in right away, but `requireVerifiedEmail` (in
+  `src/middleware/auth.ts`) blocks `/api/cart/*` and `POST /api/orders`
+  with a 403 until `User.emailVerified` is true. Deliberately **not**
+  applied to admin routes — those are already gated by role, and the
+  seeded admin account's email is a placeholder that can't receive real
+  mail. Every verification email carries both a link (`?token=...`,
+  looked up globally — the token is long and unguessable) and a 6-digit
+  code (checked only against the caller's own account via
+  `POST /auth/verify-email-code`, so it can't be brute-forced the way a
+  global lookup would allow); either one verifies the account, and both
+  share one 24-hour expiry (see `src/lib/verification.ts`).
 
 ## Deploying (when you're ready)
 

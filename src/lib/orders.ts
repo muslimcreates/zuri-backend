@@ -22,12 +22,13 @@ export type NewAddressInput = {
 };
 
 /**
- * Creates an order from a cart payload the client sends at checkout time
- * (this API is stateless about carts — the frontend owns cart state, e.g.
- * in localStorage, and only tells the backend about it at checkout).
- * Looks up live product data server-side (never trusts client-sent prices),
- * snapshots name/price/fulfillment type onto each OrderItem, and decrements
- * stock inside a transaction so concurrent checkouts can't oversell.
+ * Creates an order from a resolved list of {productId, quantity} lines.
+ * The caller (routes/orders.ts) resolves these from the user's server-side
+ * cart (see lib/cart.ts) — this function itself doesn't know or care where
+ * they came from. Looks up live product data server-side (never trusts
+ * client-sent prices), snapshots name/price/fulfillment type onto each
+ * OrderItem, and decrements stock inside a transaction so concurrent
+ * checkouts can't oversell.
  */
 export async function createOrder({
   userId,
