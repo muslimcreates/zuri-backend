@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { BadRequestError, ConflictError } from "./errors";
+import { BadRequestError } from "./errors";
 import type { ManualPaymentMethod } from "./payments";
 
 function generateOrderNumber() {
@@ -52,16 +52,18 @@ export async function createOrder({
   });
   const byId = new Map(products.map((p) => [p.id, p]));
 
+  // Every requested line is honored at face value, including products with
+  // zero (or no) stock on hand. A lot of this catalog is sourced per-order
+  // from Kenya rather than sitting in inventory — "0 in stock" means "we
+  // haven't brought this batch over yet", not "can't be ordered". The
+  // storefront no longer shows an out-of-stock badge or blocks add-to-cart
+  // for this reason (see ProductCard/ProductDetailPage); stock therefore
+  // must never gate or shrink an order here either.
   const lines = items
     .map((item) => {
       const product = byId.get(item.productId);
-      if (!product) return null;
-      const quantity =
-        product.fulfillmentType === "STOCKED" && product.stock !== null
-          ? Math.min(item.quantity, Math.max(product.stock, 0))
-          : item.quantity;
-      if (quantity <= 0) return null;
-      return { product, quantity, lineTotalKurus: product.priceKurus * quantity };
+      if (!product || item.quantity <= 0) return null;
+      return { product, quantity: item.quantity, lineTotalKurus: product.priceKurus * item.quantity };
     })
     .filter((l): l is NonNullable<typeof l> => l !== null);
 
@@ -74,13 +76,10 @@ export async function createOrder({
   const order = await prisma.$transaction(async (tx) => {
     for (const line of lines) {
       if (line.product.fulfillmentType === "STOCKED") {
-        const fresh = await tx.product.findUnique({
-          where: { id: line.product.id },
-          select: { stock: true },
-        });
-        if (!fresh || (fresh.stock ?? 0) < line.quantity) {
-          throw new ConflictError(`${line.product.name} no longer has enough stock.`);
-        }
+        // Deliberately no availability check/rejection here (see the
+        // comment on `lines` above) — this decrement is bookkeeping for the
+        // admin dashboard's low/negative-stock view, not a gate on the
+        // order. Going negative just means "N owed, not yet sourced".
         await tx.product.update({
           where: { id: line.product.id },
           data: { stock: { decrement: line.quantity } },

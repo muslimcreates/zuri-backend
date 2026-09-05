@@ -18,7 +18,7 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 function brandedEmailHtml(opts: { title: string; bodyHtml: string; buttonText: string; buttonUrl: string }) {
   return `
   <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; color: #1a1a1a;">
-    <p style="letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; color: #b45309; font-weight: 600; margin: 0 0 24px;">Zuri Express &mdash; For Kenyans, By Kenyans</p>
+    <p style="letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; color: #b45309; font-weight: 600; margin: 0 0 24px;">Zuri Express &mdash; A Taste of Kenya, Beyond Kenya</p>
     <h1 style="font-size: 20px; margin: 0 0 16px;">${opts.title}</h1>
     <div style="font-size: 15px; line-height: 1.6; color: #3a3a3a;">${opts.bodyHtml}</div>
     <a href="${opts.buttonUrl}" style="display: inline-block; margin-top: 24px; background: #b45309; color: #fff; text-decoration: none; padding: 12px 20px; border-radius: 6px; font-size: 14px; font-weight: 600;">${opts.buttonText}</a>
