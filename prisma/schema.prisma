@@ -98,6 +98,18 @@ model Address {
   addressLine String
   postalCode  String
 
+  // The row a user manages from /settings — kept editable, and completely
+  // separate from every other Address row here, which are one-per-order
+  // *snapshots* created inside createOrder() (see lib/orders.ts). That
+  // separation matters: an Order's delivery address must never silently
+  // change after the fact just because someone updated their saved address
+  // later, the same way OrderItem snapshots product name/price. At most one
+  // row per user should have isDefault true — enforced in application code
+  // (routes/addresses.ts), not a DB constraint, since Postgres has no
+  // built-in "unique where true" short of a partial index we'd rather not
+  // introduce for one boolean.
+  isDefault Boolean @default(false)
+
   orders Order[]
 
   @@index([userId])

@@ -19,6 +19,11 @@ const CheckoutSchema = z.object({
     postalCode: z.string().trim().min(3, "Enter a postal code."),
   }),
   paymentMethod: z.enum(MANUAL_PAYMENT_VALUES),
+  // Optional: also upsert this address as the user's saved default (see
+  // routes/addresses.ts) in the same transaction as placing the order, so
+  // "check out" and "save my details" can be one action instead of two
+  // separate requests from the frontend.
+  saveAsDefault: z.boolean().optional(),
 });
 
 // POST /api/orders — place an order from the caller's server-side cart (see
@@ -27,7 +32,7 @@ const CheckoutSchema = z.object({
 // from anything the client sends, so there's no way to check out items you
 // never actually added.
 ordersRouter.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
-  const { address, paymentMethod } = CheckoutSchema.parse(req.body);
+  const { address, paymentMethod, saveAsDefault } = CheckoutSchema.parse(req.body);
 
   const cartItems = await getCartItems(req.user!.userId);
   const items = cartItems.map((ci) => ({ productId: ci.productId, quantity: ci.quantity }));
@@ -37,6 +42,7 @@ ordersRouter.post("/", requireAuth, requireVerifiedEmail, async (req, res) => {
     items,
     address,
     paymentMethod,
+    saveAsDefault,
   });
 
   // Only reached once the order is actually created — if createOrder threw

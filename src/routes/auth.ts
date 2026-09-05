@@ -299,3 +299,19 @@ authRouter.get("/me", requireAuth, async (req, res) => {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.userId } });
   res.json(toUserDTO(user));
 });
+
+// --- Account settings ---
+
+const UpdateProfileSchema = z.object({
+  name: z.string().trim().min(2, "Name must be at least 2 characters."),
+});
+
+// PATCH /api/auth/me — from /settings. Deliberately name-only for now:
+// email is tied to login and to the verification flow above, and changing
+// it safely would mean re-verifying the new address, which is a bigger
+// feature than "let someone fix a typo in their name" — not built yet.
+authRouter.patch("/me", requireAuth, async (req, res) => {
+  const { name } = UpdateProfileSchema.parse(req.body);
+  const user = await prisma.user.update({ where: { id: req.user!.userId }, data: { name } });
+  res.json(toUserDTO(user));
+});

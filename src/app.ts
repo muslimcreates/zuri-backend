@@ -8,6 +8,7 @@ import { categoriesRouter } from "./routes/categories";
 import { productsRouter } from "./routes/products";
 import { cartRouter } from "./routes/cart";
 import { ordersRouter } from "./routes/orders";
+import { addressesRouter } from "./routes/addresses";
 import { adminProductsRouter } from "./routes/adminProducts";
 import { adminOrdersRouter } from "./routes/adminOrders";
 import { adminDashboardRouter } from "./routes/adminDashboard";
@@ -32,6 +33,7 @@ export function createApp() {
   app.use("/api/products", productsRouter);
   app.use("/api/cart", cartRouter);
   app.use("/api/orders", ordersRouter);
+  app.use("/api/addresses", addressesRouter);
   app.use("/api/admin/products", adminProductsRouter);
   app.use("/api/admin/orders", adminOrdersRouter);
   app.use("/api/admin/dashboard", adminDashboardRouter);

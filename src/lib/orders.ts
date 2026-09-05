@@ -35,11 +35,13 @@ export async function createOrder({
   items,
   address,
   paymentMethod,
+  saveAsDefault,
 }: {
   userId: string;
   items: CartItemInput[];
   address: NewAddressInput;
   paymentMethod: ManualPaymentMethod;
+  saveAsDefault?: boolean;
 }) {
   if (items.length === 0) {
     throw new BadRequestError("Cart is empty.");
@@ -89,6 +91,19 @@ export async function createOrder({
     const createdAddress = await tx.address.create({
       data: { userId, ...address },
     });
+
+    // Deliberately a *separate* row from createdAddress above, not the same
+    // one reused with isDefault: true — see the doc comment on
+    // Address.isDefault in schema.prisma for why an order's address must
+    // stay an immutable snapshot even if this becomes the user's default.
+    if (saveAsDefault) {
+      const existingDefault = await tx.address.findFirst({ where: { userId, isDefault: true } });
+      if (existingDefault) {
+        await tx.address.update({ where: { id: existingDefault.id }, data: address });
+      } else {
+        await tx.address.create({ data: { ...address, userId, isDefault: true } });
+      }
+    }
 
     return tx.order.create({
       data: {
