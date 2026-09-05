@@ -10,6 +10,7 @@ import { cartRouter } from "./routes/cart";
 import { ordersRouter } from "./routes/orders";
 import { addressesRouter } from "./routes/addresses";
 import { adminProductsRouter } from "./routes/adminProducts";
+import { adminCategoriesRouter } from "./routes/adminCategories";
 import { adminOrdersRouter } from "./routes/adminOrders";
 import { adminDashboardRouter } from "./routes/adminDashboard";
 
@@ -35,6 +36,7 @@ export function createApp() {
   app.use("/api/orders", ordersRouter);
   app.use("/api/addresses", addressesRouter);
   app.use("/api/admin/products", adminProductsRouter);
+  app.use("/api/admin/categories", adminCategoriesRouter);
   app.use("/api/admin/orders", adminOrdersRouter);
   app.use("/api/admin/dashboard", adminDashboardRouter);
 
