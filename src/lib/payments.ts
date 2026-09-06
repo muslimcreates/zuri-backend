@@ -13,9 +13,15 @@
 // `IyzicoProvider`) and swap `activeProvider`. Nothing in the checkout route
 // or order model needs to change.
 
+// Cash on delivery isn't offered here on purpose — Zuri Express has no way
+// to collect cash at the door, so every order placed with it in the past
+// had to be chased down for payment by hand after the fact. The
+// PaymentMethod enum (schema.prisma) still has CASH_ON_DELIVERY so those
+// past orders keep their recorded value; it's just not in this list, so it
+// can no longer be selected at checkout.
 export const MANUAL_PAYMENT_METHODS = [
   { value: "BANK_TRANSFER", label: "Bank transfer (havale/EFT)" },
-  { value: "CASH_ON_DELIVERY", label: "Cash on delivery" },
+  { value: "MPESA", label: "M-Pesa" },
 ] as const;
 
 export type ManualPaymentMethod = (typeof MANUAL_PAYMENT_METHODS)[number]["value"];

@@ -82,19 +82,29 @@ export async function sendVerificationEmail(opts: {
 // ADMIN_NOTIFICATION_EMAIL in .env to receive it. Doesn't block checkout
 // if it fails to send (same fire-and-forget pattern as verification email).
 
+// The full DB enum (including CASH_ON_DELIVERY), not just the methods
+// currently offered at checkout (see lib/payments.ts) — an order placed
+// before that option was removed still has it as its recorded value, and
+// this notification must be able to label it without crashing.
+const PAYMENT_LABELS: Record<"BANK_TRANSFER" | "MPESA" | "CASH_ON_DELIVERY", string> = {
+  BANK_TRANSFER: "Bank transfer",
+  MPESA: "M-Pesa",
+  CASH_ON_DELIVERY: "Cash on delivery",
+};
+
 export async function sendNewOrderNotification(opts: {
   orderId: string;
   orderNumber: string;
   customerName: string;
   customerEmail: string;
   totalKurus: number;
-  paymentMethod: "BANK_TRANSFER" | "CASH_ON_DELIVERY";
+  paymentMethod: "BANK_TRANSFER" | "MPESA" | "CASH_ON_DELIVERY";
   itemsSummary: string;
 }) {
   const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL;
   const clientOrigin = process.env.CLIENT_ORIGIN ?? "http://localhost:5173";
   const adminOrderUrl = `${clientOrigin}/admin/orders/${opts.orderId}`;
-  const paymentLabel = opts.paymentMethod === "BANK_TRANSFER" ? "Bank transfer" : "Cash on delivery";
+  const paymentLabel = PAYMENT_LABELS[opts.paymentMethod];
 
   const summaryText =
     `New order ${opts.orderNumber} from ${opts.customerName} (${opts.customerEmail})\n` +

@@ -28,6 +28,10 @@ enum FulfillmentType {
 
 enum PaymentMethod {
   BANK_TRANSFER
+  MPESA
+  // No longer offered at checkout (see lib/payments.ts's
+  // MANUAL_PAYMENT_METHODS) — kept in the enum only so existing orders that
+  // were placed with this method keep their recorded value.
   CASH_ON_DELIVERY
 }
 
